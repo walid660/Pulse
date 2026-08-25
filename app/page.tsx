@@ -9,8 +9,9 @@ export default function App() {
   const [page, setPage] = useState("dashboard");
   const [dark, setDark] = useState(false);
   const [user, setUser] = useStateAuth<any>(null);
-  const [profil, setProfil] = useStateAuth<any>(null);
   const [checking, setChecking] = useStateAuth(true);
+  const [profil, setProfil] = useStateAuth<any>(null);
+  const [onboarding, setOnboarding] = useStateAuth(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -19,10 +20,14 @@ export default function App() {
       if (u) {
         const { data: p } = await supabase
           .from("profils")
-          .select("*, entreprises(*)")
+          .select("*")
           .eq("id", u.id)
           .single();
-        setProfil(p);
+        if (!p || !p.prenom) {
+          setOnboarding(true);
+        } else {
+          setProfil(p);
+        }
       }
       setChecking(false);
     });
@@ -30,6 +35,20 @@ export default function App() {
       setUser(session?.user ?? null);
     });
   }, []);
+
+  const saveOnboarding = async (prenom: string, entreprise: string) => {
+    if (!user) return;
+    await supabase.from("profils").upsert({
+      id: user.id,
+      prenom,
+      entreprise_nom: entreprise,
+      nom: user.email,
+      role: "technicien",
+    });
+    const { data: p } = await supabase.from("profils").select("*").eq("id", user.id).single();
+    setProfil(p);
+    setOnboarding(false);
+  };
 
   if (checking) return (
     <div className="min-h-screen bg-white flex items-center justify-center">
@@ -43,6 +62,7 @@ export default function App() {
   );
 
   if (!user) return <Landing />;
+  if (onboarding) return <Onboarding onSave={saveOnboarding} />;
 
   const bg = dark ? "#0d0d14" : "#f5f5f7";
   const card = dark ? "bg-[#1a1a2e] border-white/5" : "bg-white border-gray-100";
@@ -52,16 +72,13 @@ export default function App() {
   const muted = dark ? "text-gray-600" : "text-gray-400";
   const t = { bg, card, nav, text, sub, muted };
 
-  const nomTechnicien = profil?.nom?.split("@")[0] || "Technicien";
-  const nomEntreprise = profil?.entreprises?.nom || "";
-
   return (
     <div style={{ backgroundColor: bg }} className={`min-h-screen ${text} flex flex-col w-full relative`}>
-      {page === "dashboard" && <Dashboard setPage={setPage} t={t} dark={dark} nomTechnicien={nomTechnicien} nomEntreprise={nomEntreprise} />}
-      {page === "rapport" && <Rapport setPage={setPage} t={t} entrepriseId={profil?.entreprise_id} />}
+      {page === "dashboard" && <Dashboard setPage={setPage} t={t} profil={profil} />}
+      {page === "rapport" && <Rapport setPage={setPage} t={t} profil={profil} />}
       {page === "interventions" && <Interventions t={t} />}
       {page === "frais" && <Frais t={t} />}
-      {page === "profil" && <Profil t={t} dark={dark} setDark={setDark} profil={profil} user={user} />}
+      {page === "profil" && <Profil t={t} dark={dark} setDark={setDark} profil={profil} />}
 
       <nav className={`fixed bottom-0 w-full ${nav} border-t shadow-lg flex justify-around py-4 px-2 z-50`}>
         {[
@@ -89,21 +106,66 @@ export default function App() {
   );
 }
 
-function Dashboard({ setPage, t, dark, nomTechnicien, nomEntreprise }: any) {
+function Onboarding({ onSave }: { onSave: (prenom: string, entreprise: string) => void }) {
+  const [prenom, setPrenom] = useState("");
+  const [entreprise, setEntreprise] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSave = async () => {
+    if (!prenom || !entreprise) return;
+    setLoading(true);
+    await onSave(prenom, entreprise);
+    setLoading(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f5f5f7] flex flex-col items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        <div className="flex flex-col items-center mb-10">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-200">
+            <span className="text-white text-2xl font-black">P</span>
+          </div>
+          <h1 className="text-2xl font-black text-gray-900">Bienvenue sur Pulse</h1>
+          <p className="text-gray-400 text-sm mt-2 text-center">Complétez votre profil pour commencer</p>
+        </div>
+        <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100 space-y-4">
+          <div>
+            <label className="text-gray-500 text-xs font-bold">Votre prénom</label>
+            <input type="text" value={prenom} onChange={(e) => setPrenom(e.target.value)}
+              placeholder="Ex: Thomas"
+              className="w-full mt-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="text-gray-500 text-xs font-bold">Votre entreprise</label>
+            <input type="text" value={entreprise} onChange={(e) => setEntreprise(e.target.value)}
+              placeholder="Ex: Lagarde Autoclaves"
+              className="w-full mt-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-blue-500" />
+          </div>
+          <button onClick={handleSave} disabled={loading || !prenom || !entreprise}
+            className="w-full bg-blue-600 text-white py-4 rounded-xl font-black text-lg hover:bg-blue-500 transition disabled:opacity-50 shadow-lg shadow-blue-200">
+            {loading ? "Enregistrement..." : "Commencer →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ setPage, t, profil }: any) {
+  const prenom = profil?.prenom || "Technicien";
+  const entreprise = profil?.entreprise_nom || "";
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
     <div className="flex-1 pb-28 overflow-y-auto">
       <div className="px-6 pt-12 pb-6 flex justify-between items-center">
         <div>
-          {nomEntreprise && (
-            <span className="text-xs font-semibold bg-blue-50 text-blue-600 px-3 py-1 rounded-full">{nomEntreprise}</span>
-          )}
-          <p className={`${t.sub} text-sm font-medium mt-2`}>{today}</p>
-          <h1 className={`text-3xl font-black mt-1 ${t.text}`}>Bonjour, {nomTechnicien} 👋</h1>
+          {entreprise && <p className="text-blue-600 text-xs font-bold uppercase tracking-wider">{entreprise}</p>}
+          <p className={`${t.sub} text-sm font-medium`}>{today}</p>
+          <h1 className={`text-3xl font-black mt-1 ${t.text}`}>Bonjour, {prenom} 👋</h1>
         </div>
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-blue-500/30">
-          {nomTechnicien[0]?.toUpperCase()}
+          {prenom[0]?.toUpperCase()}
         </div>
       </div>
 
@@ -186,7 +248,7 @@ function Dashboard({ setPage, t, dark, nomTechnicien, nomEntreprise }: any) {
   );
 }
 
-function Rapport({ setPage, t, entrepriseId }: any) {
+function Rapport({ setPage, t, profil }: any) {
   const [recording, setRecording] = useState(false);
   const [done, setDone] = useState(false);
   const [transcription, setTranscription] = useState("");
@@ -197,9 +259,7 @@ function Rapport({ setPage, t, entrepriseId }: any) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const recorder = new MediaRecorder(stream);
     const audioChunks: any[] = [];
-
-    recorder.ondataavailable = (e) => { audioChunks.push(e.data); };
-
+    recorder.ondataavailable = (e) => audioChunks.push(e.data);
     recorder.onstop = async () => {
       setLoading(true);
       const blob = new Blob(audioChunks, { type: "audio/webm" });
@@ -217,7 +277,6 @@ function Rapport({ setPage, t, entrepriseId }: any) {
       }
       setLoading(false);
     };
-
     recorder.start();
     setMediaRecorder(recorder);
     setRecording(true);
@@ -233,34 +292,29 @@ function Rapport({ setPage, t, entrepriseId }: any) {
       <button onClick={() => setPage("dashboard")} className={`${t.sub} text-sm font-semibold mb-8`}>← Retour</button>
       <h1 className={`text-3xl font-black mb-2 ${t.text}`}>Rapport vocal</h1>
       <p className={`${t.sub} text-sm mb-10`}>Parlez, l'IA remplit votre rapport automatiquement.</p>
-
       <div className="flex flex-col items-center gap-8">
         <div className={`w-40 h-40 rounded-full flex items-center justify-center transition-all shadow-2xl ${recording ? "bg-red-50 shadow-red-200 animate-pulse" : "bg-blue-50 shadow-blue-100"}`}>
           <div className={`w-28 h-28 rounded-full flex items-center justify-center ${recording ? "bg-red-100" : "bg-blue-100"}`}>
             <Mic size={52} className={recording ? "text-red-500" : "text-blue-500"} />
           </div>
         </div>
-
         <button onClick={recording ? stopRecording : startRecording}
           className={`px-10 py-4 rounded-2xl font-black text-lg text-white transition shadow-lg ${recording ? "bg-red-500 shadow-red-200" : "bg-blue-600 shadow-blue-200"}`}>
           {recording ? "⏹ Arrêter l'enregistrement" : "🎙️ Démarrer"}
         </button>
-
         {loading && (
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <p className={`${t.sub} text-sm`}>Transcription en cours...</p>
           </div>
         )}
-
         {recording && (
           <div className="flex gap-1 items-end h-8">
-            {[3, 5, 7, 4, 6, 8, 5, 3, 6, 4, 7, 5].map((h, i) => (
+            {[3,5,7,4,6,8,5,3,6,4,7,5].map((h, i) => (
               <div key={i} style={{ height: `${h * 4}px` }} className="w-1.5 bg-red-400 rounded-full animate-pulse" />
             ))}
           </div>
         )}
-
         {done && (
           <div className="w-full bg-white rounded-3xl p-6 border border-gray-100 shadow-lg mt-2">
             <div className="flex items-center gap-2 mb-3">
@@ -275,7 +329,7 @@ function Rapport({ setPage, t, entrepriseId }: any) {
                 const res = await fetch("/api/generate-pdf", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ transcription, entrepriseId }),
+                  body: JSON.stringify({ transcription, technicien: profil?.prenom || "Technicien" }),
                 });
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
@@ -285,7 +339,7 @@ function Rapport({ setPage, t, entrepriseId }: any) {
                 a.click();
               }}
               className="w-full bg-blue-600 text-white rounded-2xl py-4 font-bold hover:bg-blue-500 transition shadow-lg shadow-blue-200">
-              📄 Générer le rapport PDF
+              📄 Générer le PDF
             </button>
           </div>
         )}
@@ -331,13 +385,13 @@ function Frais({ t }: any) {
     <div className="flex-1 pb-28 px-6 pt-12">
       <h1 className={`text-3xl font-black mb-1 ${t.text}`}>Frais du mois</h1>
       <p className="text-green-500 text-4xl font-black mb-2">1 250,45 €</p>
-      <p className={`${t.sub} text-sm mb-6`}>Mai 2025</p>
+      <p className={`${t.sub} text-sm mb-6`}>Juillet 2026</p>
       <div className="space-y-3">
         {[
-          { type: "Hôtel", montant: "600€", date: "20/05/2025", icon: "🏨", color: "bg-purple-50" },
-          { type: "Péage", montant: "185€", date: "19/05/2025", icon: "🛣️", color: "bg-blue-50" },
-          { type: "Repas", montant: "254€", date: "18/05/2025", icon: "🍽️", color: "bg-orange-50" },
-          { type: "Carburant", montant: "132€", date: "15/05/2025", icon: "⛽", color: "bg-green-50" },
+          { type: "Hôtel", montant: "600€", date: "20/07/2026", icon: "🏨", color: "bg-purple-50" },
+          { type: "Péage", montant: "185€", date: "19/07/2026", icon: "🛣️", color: "bg-blue-50" },
+          { type: "Repas", montant: "254€", date: "18/07/2026", icon: "🍽️", color: "bg-orange-50" },
+          { type: "Carburant", montant: "132€", date: "15/07/2026", icon: "⛽", color: "bg-green-50" },
         ].map((f) => (
           <div key={f.type} className={`${t.card} border rounded-2xl p-4 flex justify-between items-center shadow-sm`}>
             <div className="flex items-center gap-3">
@@ -358,26 +412,24 @@ function Frais({ t }: any) {
   );
 }
 
-function Profil({ t, dark, setDark, profil, user }: any) {
-  const nom = profil?.nom || user?.email || "Technicien";
-  const entreprise = profil?.entreprises?.nom || "—";
-
+function Profil({ t, dark, setDark, profil }: any) {
   return (
     <div className="flex-1 pb-28 px-6 pt-12">
       <h1 className={`text-3xl font-black mb-6 ${t.text}`}>Profil</h1>
       <div className="flex items-center gap-4 mb-8">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-2xl font-black text-white shadow-lg shadow-blue-200">
-          {nom[0]?.toUpperCase()}
+          {profil?.prenom?.[0]?.toUpperCase() || "T"}
         </div>
         <div>
-          <h2 className={`text-xl font-black ${t.text}`}>{nom}</h2>
-          <p className={`${t.sub} text-sm`}>Technicien SAV itinérant</p>
+          <h2 className={`text-xl font-black ${t.text}`}>{profil?.prenom || "Technicien"}</h2>
+          <p className={`${t.sub} text-sm`}>{profil?.entreprise_nom || ""}</p>
         </div>
       </div>
       <div className="space-y-3">
         {[
-          { label: "Entreprise", value: entreprise },
-          { label: "Email", value: user?.email || "—" },
+          { label: "Prénom", value: profil?.prenom || "—" },
+          { label: "Entreprise", value: profil?.entreprise_nom || "—" },
+          { label: "Rôle", value: profil?.role || "technicien" },
         ].map((item) => (
           <div key={item.label} className={`${t.card} border rounded-2xl p-4 shadow-sm`}>
             <p className={`${t.sub} text-xs font-medium`}>{item.label}</p>
@@ -393,8 +445,7 @@ function Profil({ t, dark, setDark, profil, user }: any) {
             <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-all shadow ${dark ? "left-6" : "left-0.5"}`}></div>
           </button>
         </div>
-        <button
-          onClick={async () => { await supabase.auth.signOut(); }}
+        <button onClick={async () => { await supabase.auth.signOut(); }}
           className="w-full mt-2 bg-red-50 text-red-500 rounded-2xl py-4 font-bold hover:bg-red-100 transition border border-red-100">
           Se déconnecter
         </button>
