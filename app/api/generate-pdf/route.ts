@@ -1,9 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import OpenAI from "openai";
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+type RapportIA = {
+  odm: string;
+  client: string;
+  appareil: string;
+  objet: string;
+  personne_rencontree: string;
+  objectif: string;
+  descriptif: string;
+  problemes: string;
+  tests: string;
+  actions: string;
+  taches_non_achevees: string;
+  retour_materiel: string;
+  demande_commerciale: string;
+  remarques: string;
+};
+
+async function extraireAvecIA(transcription: string): Promise<RapportIA | null> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "Tu es un assistant qui structure les comptes-rendus oraux de techniciens SAV en champs de rapport d'intervention. " +
+            "Réponds UNIQUEMENT en JSON avec exactement ces clés (chaînes de texte, en français, rédigées proprement ; laisse une chaîne vide si l'information n'est pas mentionnée, n'invente jamais) : " +
+            "odm, client, appareil, objet, personne_rencontree, objectif, descriptif, problemes, tests, actions, taches_non_achevees, retour_materiel, demande_commerciale, remarques. " +
+            "\"descriptif\" est un résumé clair et complet de l'intervention (2-4 phrases), rédigé au passé, à partir de tout ce que dit le technicien.",
+        },
+        { role: "user", content: transcription },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) return null;
+    return JSON.parse(raw) as RapportIA;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { transcription } = await req.json();
+    const { transcription, technicien } = await req.json();
+    const ia = await extraireAvecIA(transcription);
 
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([595, 842]);
@@ -32,12 +79,12 @@ export async function POST(req: NextRequest) {
     const today = new Date().toLocaleDateString("fr-FR");
     const headerFields = [
       { label: "Date :", value: today },
-      { label: "ODM :", value: extraireChamp(transcription, ["odm", "ordre", "bon"]) },
-      { label: "Client :", value: extraireChamp(transcription, ["client", "chez", "pour", "société"]) },
-      { label: "N° Appareil(s) :", value: extraireChamp(transcription, ["autoclave", "appareil", "machine", "numéro", "numero", "n°"]) },
-      { label: "Objet de l'intervention :", value: extraireChamp(transcription, ["objet", "intervention", "mission", "but"]) },
-      { label: "Personne rencontrée :", value: extraireChamp(transcription, ["rencontré", "rencontre", "contact", "interlocuteur"]) },
-      { label: "Technicien :", value: "Thomas Martin" },
+      { label: "ODM :", value: ia?.odm || extraireChamp(transcription, ["odm", "ordre", "bon"]) },
+      { label: "Client :", value: ia?.client || extraireChamp(transcription, ["client", "chez", "pour", "société"]) },
+      { label: "N° Appareil(s) :", value: ia?.appareil || extraireChamp(transcription, ["autoclave", "appareil", "machine", "numéro", "numero", "n°"]) },
+      { label: "Objet de l'intervention :", value: ia?.objet || extraireChamp(transcription, ["objet", "intervention", "mission", "but"]) },
+      { label: "Personne rencontrée :", value: ia?.personne_rencontree || extraireChamp(transcription, ["rencontré", "rencontre", "contact", "interlocuteur"]) },
+      { label: "Technicien :", value: technicien || "—" },
     ];
 
     for (const field of headerFields) {
@@ -59,39 +106,39 @@ export async function POST(req: NextRequest) {
     const sections = [
       {
         title: "Objectif de l'intervention :",
-        content: extraireSection(transcription, ["objectif", "but", "mission", "raison"]),
+        content: ia?.objectif || extraireSection(transcription, ["objectif", "but", "mission", "raison"]),
       },
       {
         title: "Descriptif de l'intervention :",
-        content: transcription,
+        content: ia?.descriptif || transcription,
       },
       {
         title: "Problèmes constatés :",
-        content: extraireSection(transcription, ["problème", "probleme", "panne", "défaut", "defaut", "anomalie", "erreur"]),
+        content: ia?.problemes || extraireSection(transcription, ["problème", "probleme", "panne", "défaut", "defaut", "anomalie", "erreur"]),
       },
       {
         title: "Tests à effectuer sur la machine :",
-        content: extraireSection(transcription, ["test", "vérification", "verification", "contrôle", "controle"]),
+        content: ia?.tests || extraireSection(transcription, ["test", "vérification", "verification", "contrôle", "controle"]),
       },
       {
         title: "Actions complémentaires obligatoires :",
-        content: extraireSection(transcription, ["action", "remplacement", "réglage", "reglage", "réparation", "reparation"]),
+        content: ia?.actions || extraireSection(transcription, ["action", "remplacement", "réglage", "reglage", "réparation", "reparation"]),
       },
       {
         title: "Tâches non achevées :",
-        content: extraireSection(transcription, ["non achevé", "non acheve", "à faire", "a faire", "prévoir", "prevoir", "reste"]),
+        content: ia?.taches_non_achevees || extraireSection(transcription, ["non achevé", "non acheve", "à faire", "a faire", "prévoir", "prevoir", "reste"]),
       },
       {
         title: "Retour matériel :",
-        content: extraireSection(transcription, ["retour", "matériel", "materiel", "pièce", "piece", "ramené", "ramene"]),
+        content: ia?.retour_materiel || extraireSection(transcription, ["retour", "matériel", "materiel", "pièce", "piece", "ramené", "ramene"]),
       },
       {
         title: "Demande commerciale :",
-        content: extraireSection(transcription, ["devis", "commande", "demande", "commercial"]),
+        content: ia?.demande_commerciale || extraireSection(transcription, ["devis", "commande", "demande", "commercial"]),
       },
       {
         title: "Autres remarques :",
-        content: extraireSection(transcription, ["remarque", "autre", "divers", "note"]),
+        content: ia?.remarques || extraireSection(transcription, ["remarque", "autre", "divers", "note"]),
       },
     ];
 

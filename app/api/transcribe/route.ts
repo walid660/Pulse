@@ -21,7 +21,11 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ text: transcription.text });
-  } catch (error) {
-    return NextResponse.json({ error: "Erreur de transcription" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Erreur transcription Whisper:", error?.message || error);
+    return NextResponse.json(
+      { error: "Erreur de transcription", detail: error?.message || String(error) },
+      { status: 500 }
+    );
   }
 }

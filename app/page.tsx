@@ -269,10 +269,10 @@ function Rapport({ setPage, t, profil }: any) {
       try {
         const res = await fetch("/api/transcribe", { method: "POST", body: formData });
         const data = await res.json();
-        setTranscription(data.text || "Erreur de transcription");
+        setTranscription(data.text || `Erreur de transcription: ${data.detail || data.error || "inconnue"}`);
         setDone(true);
-      } catch {
-        setTranscription("Erreur de transcription");
+      } catch (e: any) {
+        setTranscription(`Erreur de transcription: ${e?.message || e}`);
         setDone(true);
       }
       setLoading(false);
